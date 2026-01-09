@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 from typing import Optional, Any
 
-from .client import OctopusClient
+from .client import OctopusClient, APIError
 from .models import Tariff
 
 # Optional agent import
@@ -115,44 +115,59 @@ class MenuBarServer:
                     result["rate_ends_in_seconds"] = max(0, int(time_left.total_seconds()))
 
                 # Dispatch status
-                dispatch = await self.client.get_dispatch_status()
-                if dispatch:
-                    if dispatch.is_dispatching:
-                        result["dispatch_status"] = "charging"
-                        if dispatch.current_dispatch:
-                            result["dispatch_end"] = dispatch.current_dispatch.end.isoformat()
-                    elif dispatch.next_dispatch:
-                        result["dispatch_status"] = "scheduled"
-                        result["next_dispatch_start"] = dispatch.next_dispatch.start.isoformat()
-                        result["next_dispatch_end"] = dispatch.next_dispatch.end.isoformat()
+                try:
+                    dispatch = await self.client.get_dispatch_status()
+                    if dispatch:
+                        if dispatch.is_dispatching:
+                            result["dispatch_status"] = "charging"
+                            if dispatch.current_dispatch:
+                                result["dispatch_end"] = dispatch.current_dispatch.end.isoformat()
+                        elif dispatch.next_dispatch:
+                            result["dispatch_status"] = "scheduled"
+                            result["next_dispatch_start"] = dispatch.next_dispatch.start.isoformat()
+                            result["next_dispatch_end"] = dispatch.next_dispatch.end.isoformat()
+                except APIError:
+                    # No dispatch data - expected for users without Intelligent Octopus
+                    pass
 
                 # Get charger/EV provider (e.g., HYPERVOLT, OHME, TESLA)
-                devices = await self.client.get_smart_devices()
-                if devices:
-                    result["charger_provider"] = devices[0].provider
+                try:
+                    devices = await self.client.get_smart_devices()
+                    if devices:
+                        result["charger_provider"] = devices[0].provider
+                except APIError:
+                    pass
 
                 # Get completed charge sessions history
-                completed = await self.client.get_completed_dispatches(limit=5)
-                charge_history = []
-                # Use off-peak rate for cost calculation (charging happens at off-peak)
-                off_peak_rate = result.get("off_peak_rate") or 7.0
-                for session in completed:
-                    duration = int((session["end"] - session["start"]).total_seconds() / 60)
-                    kwh = round(session["kwh"], 2)
-                    cost = round(kwh * off_peak_rate / 100, 2)  # Convert pence to pounds
-                    charge_history.append({
-                        "start": session["start"].isoformat(),
-                        "end": session["end"].isoformat(),
-                        "kwh": kwh,
-                        "duration_mins": duration,
-                        "cost": cost
-                    })
-                result["charge_history"] = charge_history
+                try:
+                    completed = await self.client.get_completed_dispatches(limit=5)
+                    charge_history = []
+                    # Use off-peak rate for cost calculation (charging happens at off-peak)
+                    off_peak_rate = result.get("off_peak_rate") or 7.0
+                    for session in completed:
+                        duration = int((session["end"] - session["start"]).total_seconds() / 60)
+                        kwh = round(session["kwh"], 2)
+                        cost = round(kwh * off_peak_rate / 100, 2)  # Convert pence to pounds
+                        charge_history.append({
+                            "start": session["start"].isoformat(),
+                            "end": session["end"].isoformat(),
+                            "kwh": kwh,
+                            "duration_mins": duration,
+                            "cost": cost
+                        })
+                    result["charge_history"] = charge_history
+                except APIError:
+                    # No dispatch history - expected for users without Intelligent Octopus
+                    pass
 
                 # Live power
-                live_power = await self.client.get_live_power()
-                if live_power:
-                    result["live_power_watts"] = live_power.demand_watts
+                try:
+                    live_power = await self.client.get_live_power()
+                    if live_power:
+                        result["live_power_watts"] = live_power.demand_watts
+                except APIError:
+                    # No Home Mini device - expected for users without one
+                    pass
 
                 # Saving sessions
                 sessions = await self.client.get_saving_sessions()
