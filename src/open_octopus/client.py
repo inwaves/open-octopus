@@ -749,26 +749,29 @@ class OctopusClient:
         Returns:
             List of SmartDevice objects
         """
-        data = await self._graphql(
-            """
-            query GetDevices($account: String!) {
-                registeredKrakenflexDevice(accountNumber: $account) {
-                    krakenflexDeviceId
-                    provider
-                    status
+        try:
+            data = await self._graphql(
+                """
+                query GetDevices($account: String!) {
+                    registeredKrakenflexDevice(accountNumber: $account) {
+                        krakenflexDeviceId
+                        provider
+                        status
+                    }
                 }
-            }
-            """,
-            {"account": self.account}
-        )
+                """,
+                {"account": self.account}
+            )
 
-        device = data.get("registeredKrakenflexDevice")
-        if device:
-            return [SmartDevice(
-                device_id=device["krakenflexDeviceId"],
-                provider=device["provider"],
-                status=device.get("status", "ACTIVE")
-            )]
+            device = data.get("registeredKrakenflexDevice")
+            if device:
+                return [SmartDevice(
+                    device_id=device["krakenflexDeviceId"],
+                    provider=device["provider"],
+                    status=device.get("status", "ACTIVE")
+                )]
+        except APIError:
+            pass
         return []
 
 
